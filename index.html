@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Хаффман</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="title">Алгоритм Хаффмана</div>
+        <div class="input-group">
+            <input type="text" id="input" value="Хто хоче – шукає можливості, хто не хоче – шукає причини.">
+            <button id="button">ОК</button>
+        </div>
+
+        <div class="ABC">
+            <table>
+                <tr>
+                    <th>Символ</th>
+                    <th>Частота</th>
+                    <th>Імовірність</th>
+                    <th>Інформація</th>
+                    <th>Біт</th>
+                </tr>
+            </table>
+        </div>
+
+        <div class="calculations">
+            <div class="entropy"></div>
+            <div class="length"></div>
+            <div class="efficiency"></div>
+            <div class="compression"></div>
+        </div>
+
+        <div id="encode"></div>
+        <div id="decode"></div>
+
+        <svg id="tree"><g></g></svg>
+    </div>
+
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script src="https://dagrejs.github.io/project/dagre-d3/latest/dagre-d3.min.js"></script>
+    <script src="buckets.min.js"></script>
+    <script>
+        function sort(a, b) {
+            if (a.frequency > b.frequency) return -1
+            if (a.frequency < b.frequency) return 1
+            return 0
+        }
+
+        function Node(value, frequency) {
+            this.value = value
+            this.frequency = frequency
+            this.left = null
+            this.right = null
+        }
+
+        function Huffman(str) {
+            this.symbols = [...str]
+        }
+
+        Huffman.prototype = {
+            frequencies() {
+                return this.symbols.reduce((prev, curr) => {
+                    prev[curr] ? prev[curr]++ : prev[curr] = 1
+                    return prev
+                }, {})
+            },
+            probability() {
+                let obj = this.frequencies()
+
+                for (let key in obj)
+                    obj[key] /= this.symbols.length
+
+
+                return obj
+            },
+            information() {
+                let obj = this.probability()
+
+                for (let key in obj)
+                    obj[key] = - (Math.log(obj[key]) / Math.log(2))
+
+                return obj
+            },
+            tree() {
+                let queue = buckets.PriorityQueue(sort)
+                let obj = this.frequencies()
+
+                for (let key in obj)
+                    queue.add(new Node(key, obj[key]))
+
+                while (queue.size() > 1) {
+                    let firstNode = queue.dequeue(),
+                        secondNode = queue.dequeue()
+
+                    let root = new Node(
+                        secondNode.value + firstNode.value,
+                        firstNode.frequency + secondNode.frequency
+                    );
+                    root.right = firstNode
+                    root.left = secondNode
+
+                    queue.enqueue(root)
+                }
+
+                return queue.peek()
+
+            },
+            bits() {
+                let obj = {}
+
+                dfs(this.tree(), '')
+
+                function dfs (node, code) {
+                    if (node.left === null && node.right === null) {
+                        obj[node.value] = code
+                        return
+                    }
+
+                    if (node.left !== null) dfs(node.left, code + '0')
+                    if (node.right !== null) dfs(node.right, code + '1')
+                }
+
+                return obj
+            },
+            entropy() {
+                return Object.values(this.probability()).reduce((prev, curr) => {
+                    return prev + (- (Number(curr)) * (Math.log(Number(curr)) / Math.log(2)))
+                }, 0)
+            },
+            length() {
+                return Object.entries(this.probability()).reduce((prev, curr) => {
+                    return prev + (curr[1]) * this.bits()[curr[0]].length
+                }, 0)
+            },
+            efficiency() {
+                return this.entropy() / (this.length() * (Math.log(2) / Math.log(2)))
+            },
+            compression() {
+                return (Math.log(Object.keys(this.bits()).length) / Math.log(2)) / (this.length() * (Math.log(2) / Math.log(2)))
+            },
+            encode() {
+                return this.symbols.map(symbol =>
+                    this.bits()[symbol]
+                ).join(' ')
+            },
+            decode() {
+                return this.encode().split(' ').map(bits => {
+                        for (let key in this.bits())
+                            if (bits === this.bits()[key])
+                                return key
+                    }
+                ).join('')
+            },
+        }
+
+        let input = document.getElementById('input')
+        let button = document.getElementById('button')
+
+        let ABC = document.querySelector('.ABC')
+        let table = ABC.querySelector('table')
+        let duplicateTable = table.cloneNode(true)
+
+        let calculations = document.querySelector('.calculations')
+        let entropy = document.querySelector('.entropy')
+        let length = document.querySelector('.length')
+        let efficiency = document.querySelector('.efficiency')
+        let compression = document.querySelector('.compression')
+
+        let encode = document.getElementById('encode')
+        let decode = document.getElementById('decode')
+
+        button.addEventListener('click', () => {
+            let huffman = new Huffman(input.value)
+
+            ABC.classList.add('active')
+            table.parentNode.replaceChild(duplicateTable.cloneNode(true), table)
+            table = document.querySelector('table')
+
+            let rows = []
+
+            for (const [symbol, code] of Object.entries(huffman.bits())) {
+                rows.push({
+                    symbol: symbol,
+                    frequencies: huffman.frequencies()[symbol],
+                    probability: huffman.probability()[symbol],
+                    information: huffman.information()[symbol],
+                    bits: code,
+                })
+            }
+
+            rows.sort((a, b) => {
+                if (a.bits.length < b.bits.length) return -1
+                if (a.bits.length > b.bits.length) return 1
+                return 0
+            });
+
+            rows.forEach(el => {
+                let tr = document.createElement('tr'), td
+
+                td = document.createElement('td')
+                td.innerText = '\'' + el.symbol + '\''
+                tr.appendChild(td)
+
+                td = document.createElement('td')
+                td.innerText = el.frequencies
+                tr.appendChild(td)
+
+                td = document.createElement('td')
+                td.innerText = el.probability.toFixed(2)
+                tr.appendChild(td)
+
+                td = document.createElement('td')
+                td.innerText = el.information.toFixed(2)
+                tr.appendChild(td)
+
+                td = document.createElement('td')
+                td.innerText = el.bits
+                tr.appendChild(td)
+
+                table.appendChild(tr)
+            })
+
+            calculations.classList.add('active')
+            entropy.innerHTML = 'H = ' + huffman.entropy().toFixed(2)
+            length.innerHTML = 'l = ' + huffman.length().toFixed(2)
+            efficiency.innerHTML = 'eta = ' + huffman.efficiency().toFixed(2)
+            compression.innerHTML = 'Rc = ' + huffman.compression().toFixed(2)
+
+            encode.innerHTML = `<div class="encode-title">Кодований текст</div>
+                                <div class="encode-text">` + huffman.encode() + `</div>`
+            encode.classList.add('active')
+            decode.innerHTML = `<div class="decode-title">Декодований текст</div>
+                                <div class="decode-text">` + huffman.decode() + `</div>`
+            decode.classList.add('active')
+
+            /*---------------------------------------------*/
+            document.getElementById('tree').classList.add('active')
+
+            let graph = new dagreD3.graphlib.Graph().setGraph({})
+
+            tree(huffman.tree())
+
+            function tree(node) {
+                if (node.left === null && node.right === null) {
+                    graph.setNode(node.value, { label: '\'' + node.value + '\'', shape: 'circle' })
+                    return node
+                }
+
+                graph.setNode(node.value, { label: '', shape: 'circle' })
+
+                if (node.left !== null) {
+                    let child = tree(node.left)
+                    graph.setEdge(node.value, child.value, { label: '0' })
+                }
+
+                if (node.right !== null) {
+                    let child = tree(node.right)
+                    graph.setEdge(node.value, child.value, { label: '1' })
+                }
+
+                return node
+            }
+
+            let svg = d3.select('svg#tree'),
+                inner = svg.select('g')
+
+            let zoom = d3.zoom().on('zoom', event => inner.attr('transform', event.transform))
+            svg.call(zoom)
+
+            let render = new dagreD3.render()
+
+            render(inner, graph)
+
+            let initialScale = 0.75
+
+            svg.call(zoom.transform, d3.zoomIdentity.translate((parseInt(svg.style('width')) - graph.graph().width * initialScale) / 2, 20).scale(initialScale))
+
+            svg.attr('height', graph.graph().height * initialScale + 40)
+        })
+    </script>
+</body>
+</html>
